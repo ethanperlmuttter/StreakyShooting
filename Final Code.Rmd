@@ -1,0 +1,482 @@
+---
+title: "Final code"
+author: "Ethan Perlmutter"
+date: "4/20/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+```{r}
+all_plays <- read.csv(file = "NBA_PBP_2019-20.csv")
+```
+```{r}
+
+heat_games <- subset(all_plays, HomeTeam == "MIA"| AwayTeam=="MIA", select = colnames(all_plays))
+```
+
+```{r}
+rockets_games <- subset(all_plays, HomeTeam == "HOU"| AwayTeam=="HOU", select = colnames(all_plays))
+
+```
+
+```{r}
+bucks_games <- subset(all_plays, HomeTeam == "MIL"| AwayTeam=="MIL", select = colnames(all_plays))
+
+```
+
+```{r}
+Duncan_shots <- subset(heat_games, subset = str_detect(Shooter, "D. Robinson"), select = c(
+  "URL", "Date", "HomeTeam",  "AwayTeam",  "Shooter", "ShotType", "ShotOutcome"
+))
+rownames(Duncan_shots) <- 1:nrow(Duncan_shots)
+Duncan_shots$ShotOutcome <- Duncan_shots$ShotOutcome=="make"
+
+Duncan_shots %>% rename(ShotMade = ShotOutcome)
+Duncan_shots$streak_make <- integer(length = 863)
+Duncan_shots$streak_miss <- integer(length = 863)
+
+
+```
+```{r}
+McLemore_shots <- subset(rockets_games, subset = str_detect(Shooter, "B. McLemore"), select = c(
+  "URL", "Date", "HomeTeam",  "AwayTeam",  "Shooter", "ShotType", "ShotOutcome"
+))
+rownames(McLemore_shots) <- 1:nrow(McLemore_shots)
+McLemore_shots$ShotOutcome <- McLemore_shots$ShotOutcome=="make"
+
+McLemore_shots %>% rename(ShotMade = ShotOutcome)
+McLemore_shots$streak_make <- integer(length = 585)
+McLemore_shots$streak_miss <- integer(length = 585)
+```
+```{r}
+Korver_shots <- subset(bucks_games, subset = str_detect(Shooter, "K. Korver"), select = c(
+  "URL", "Date", "HomeTeam",  "AwayTeam",  "Shooter", "ShotType", "ShotOutcome"
+))
+rownames(Korver_shots) <- 1:nrow(Korver_shots)
+Korver_shots$ShotOutcome <- Korver_shots$ShotOutcome=="make"
+
+Korver_shots %>% rename(ShotMade = ShotOutcome)
+Korver_shots$streak_make <- 0
+Korver_shots$streak_miss <- 0
+
+```
+
+
+
+
+
+
+```{r}
+
+compute_streak <- function(player_shots){
+  streak_0 <- 0
+  streak_1 <- 0
+    for (i in 2:dim(player_shots)){
+      
+      if( (player_shots[i, "Date"] != player_shots[i-1,"Date"]) ){
+        streak_0 <- 0
+        streak_1 <- 0
+      }
+      else if( player_shots[i-1, "ShotOutcome"] ){
+        streak_1 <- streak_1 +1
+        streak_0 <- 0
+      }
+      else{
+        streak_0 <- streak_0 +1
+        streak_1 <- 0
+        
+      }
+      player_shots[i, "streak_miss"] <- streak_0
+      player_shots[i, "streak_make"] <- streak_1
+    }
+  player_shots$"Streak" <- player_shots$streak_make - player_shots$streak_miss
+  return( player_shots)
+}
+```
+```{r}
+
+Duncan_shots <- compute_streak(Duncan_shots)
+McLemore_shots <-compute_streak(McLemore_shots)
+Korver_shots <- compute_streak(Korver_shots)
+
+
+```
+
+
+
+```{r}
+
+hist(Duncan_shots$Streak, main = "Duncan robinson real streak frequencies")
+
+
+hist(McLemore_shots$Streak, main = "Ben McLemore real streak frequencies")
+
+
+hist(Korver_shots$Streak, main = "Kyler Korver real streak frequencies")
+
+```
+```{r}
+grouped_Duncan <- group_by(Duncan_shots, Streak)
+plot(summarize(grouped_Duncan, FG_Percentage = mean(ShotOutcome)), xlab = "Shooting Streak", ylab = "Shooting Percentage", main = "Duncan Robinson Streaky Shooting 2019-2020" )
+plot(density(Duncan_shots$Streak))
+
+s <- summarize(grouped_Duncan, FG_Percentage = mean(ShotOutcome), Makes = sum(ShotOutcome))
+l <- lm(FG_Percentage~Streak, data = s)
+
+
+plot(s$FG_Percentage~s$Streak, xlab = "Shooting Streak", ylab = "Shooting Percentage", main = "Duncan Robinson Streaky Shooting 2019-2020" )
+abline(l)
+
+```
+
+
+
+```{r}
+
+
+streaky_plot <- function(player, team){
+  
+  team_games <- subset(all_plays, HomeTeam == team| AwayTeam== team, select = colnames(all_plays))
+  
+  player_shots <- subset(team_games, subset = str_detect(Shooter, player), select = c(
+  "URL", "Date", "HomeTeam",  "AwayTeam",  "Shooter", "ShotType", "ShotOutcome"
+  ))
+  rownames(player_shots) <- 1:nrow(player_shots)
+  player_shots$ShotOutcome <- player_shots$ShotOutcome=="make"
+  
+  player_shots %>% rename(ShotMade = ShotOutcome)
+  player_shots$streak_make <- 0
+  player_shots$streak_miss <- 0
+  
+  
+  
+  player_shots <- compute_streak(player_shots)
+  title <- paste( player, "Streaky Shooting 2019-2020")
+  grouped_player <- group_by(player_shots, Streak)
+  
+  sum <- summarize(grouped_player, FG_Percentage = mean(ShotOutcome), Makes = sum(ShotOutcome))
+  line <- lm(FG_Percentage~Streak, weights = Makes, data = sum)
+  
+  plot(sum$FG_Percentage~sum$Streak, xlab = "Shooting Streak", ylab = "Shooting Percentage", main = title)
+  abline(line)
+  
+  
+  return(sum)
+  
+  
+  
+}
+
+
+summarize_season<- function(player_shots, graph = FALSE){
+  grouped_player <- group_by(player_shots, Streak)
+  
+  sum <- summarize(grouped_player, FG_Percentage = mean(ShotOutcome), Makes = sum(ShotOutcome))
+  sum$shots <- sum$Makes/sum$FG_Percentage
+  line <- lm(FG_Percentage~Streak, weights = shots, data = sum)
+  if(graph){
+    plot(sum$FG_Percentage~sum$Streak, xlab = "Shooting Streak", ylab = "Shooting Percentage", main = "Streaky Shooting")
+    abline(line)
+  }
+  
+  return(sum)
+  
+}
+
+
+```
+
+
+```{r}
+Duncan_summary <- summarize_season(Duncan_shots)
+McLemore_summary <- summarize_season(McLemore_shots)
+Kover_summary <- summarize_season(Korver_shots)
+
+
+```
+
+```{r, echo = FALSE}
+get_fga_vector <- function(player_shots){
+  player_games <- unique(player_shots$URL)
+  
+  fgas_by_game <- numeric(length =  length(player_games))
+  
+  
+  for(i in 1:length(player_games)){
+    game_shots <- player_shots[player_shots$URL == player_games[i], ]
+    fgas_by_game[i] <- dim(game_shots)
+  }
+  
+  return( fgas_by_game)
+}
+
+Duncan_fgas <- get_fga_vector(Duncan_shots)
+McLemore_fgas <- get_fga_vector(McLemore_shots)
+Korver_fgas <- get_fga_vector(Korver_shots)
+
+
+
+
+
+
+```
+
+```{r}
+max(Duncan_fgas)
+max(McLemore_fgas)
+max(Korver_fgas)
+
+
+length(Duncan_fgas)
+length(McLemore_fgas)
+length(Korver_fgas)
+
+
+ 
+min(Duncan_fgas)
+min(McLemore_fgas)
+min(Korver_fgas)
+
+
+
+```
+
+
+```{r}
+
+
+resimulate_season <- function(player_shots){
+  fg_pctg <- mean(player_shots$ShotOutcome)
+  
+  player_shots$ShotOutcome <- FALSE
+  
+  for (i in 1:dim(player_shots)){
+    r <- runif(1, 0, 1)
+    player_shots[i, "ShotOutcome"] <- (r<fg_pctg)
+  }
+  
+  player_shots <- compute_streak(player_shots)
+  
+  return(player_shots)
+  
+  
+}
+
+
+fake_Duncan_season <- resimulate_season(Duncan_shots)
+
+fake_summary <- summarize_season(fake_Duncan_season, graph = TRUE)
+
+calculate_flatness(fake_Duncan_season)
+
+```
+
+```{r}
+fg_pctg <- mean(Duncan_shots$ShotOutcome)
+s <- summarize_season(Duncan_shots)
+valid_s <- s[s$shots>=10,]
+sum( (valid_s$FG_Percentage-fg_pctg)^2, na.rm = TRUE) / dim(valid_s)[1] 
+
+
+```
+
+
+```{r}
+calculate_flatness <- function(player_shots){
+  fg_pctg <- mean(player_shots$ShotOutcome)
+  s <- summarize_season(player_shots)
+  valid_s <- s[s$shots>=10,]
+  return(sum( abs(valid_s$FG_Percentage-fg_pctg), na.rm = TRUE) / dim(valid_s)[1]  )
+
+  
+}
+
+ calculate_flatness(Duncan_shots)
+ calculate_flatness(fake_Duncan_season)
+ 
+``` 
+ 
+ 
+ 
+```{r} 
+duncan_null <- replicate(1000,{
+  fake_season <- resimulate_season(Duncan_shots)
+  calculate_flatness(fake_season)
+})
+
+plot(density(duncan_null))
+abline(v= calculate_flatness(Duncan_shots))
+
+
+
+```
+
+
+
+```{r, message = FALSE}
+
+mclemore_null <- replicate(1000,{
+  fake_season <- resimulate_season(McLemore_shots)
+  calculate_flatness(fake_season)
+})
+
+plot(density(mclemore_null))
+abline(v= calculate_flatness((McLemore_shots)))
+
+
+
+
+```
+
+
+```{r, message = FALSE}
+korver_null <- replicate(1000,{
+  fake_season <- resimulate_season(Korver_shots)
+  calculate_flatness(fake_season)
+})
+
+plot(density(korver_null))
+abline(v= calculate_flatness((Korver_shots)))
+
+
+
+```
+
+
+
+```{r, message = FALSE}
+simulate_alternate <- function(player_shots){
+  
+  fg_pctg_0 <- mean(player_shots$ShotOutcome)
+  
+  player_shots$ShotOutcome <- FALSE
+  
+  for (i in 1:dim(player_shots)){
+    
+    fg_pctg <- fg_pctg_0 + player_shots[i, "Streak"]*(0.2)
+    r <- runif(1, 0, 1)
+    
+    player_shots[i, "ShotOutcome"] <- (r<fg_pctg)
+  }
+  player_shots <- compute_streak(player_shots)
+  
+  
+  return(player_shots)
+}
+
+
+fake_Duncan_season_alt <- simulate_alternate(Duncan_shots)
+
+fake_summary <- summarize_season(fake_Duncan_season_alt, graph =TRUE)
+calculate_flatness(simulate_alternate(Korver_shots))
+
+
+```
+
+
+```{r, message = FALSE}
+duncan_alt <- replicate(1000,{
+  fake_season <- simulate_alternate(Duncan_shots)
+  calculate_flatness(fake_season)
+
+})
+```
+```{r}
+
+plot(density(duncan_null), col = "blue", main = "Duncan Robinson simulated flatness distrbutions")
+lines(density(duncan_alt), col  = "red")
+abline(v = quantile(duncan_null, .9), col = "green")
+abline(v = calculate_flatness(Duncan_shots), col = "orange")
+
+```
+
+
+
+
+```{r, message = FALSE}
+mclemore_alt <- replicate(1000,{
+  fake_season <- simulate_alternate(McLemore_shots)
+  calculate_flatness(fake_season)
+
+})
+```
+```{r}
+
+
+plot(density(mclemore_null), col = "blue", main = "Ben McLemore simulated flatness distrbutions")
+lines(density(mclemore_alt), col  = "red")
+abline(v = quantile(mclemore_null, .9), col = "green")
+abline(v = calculate_flatness(McLemore_shots), col = "orange")
+
+```
+
+```{r, message = FALSE}
+korver_alt <- replicate(1000,{
+  fake_season <- simulate_alternate(Korver_shots)
+  calculate_flatness(fake_season)
+
+})
+
+```
+```{r}
+
+plot(density(korver_null), col = "blue", main = "Kyle Korver simulated flatness distrbutions")
+lines(density(korver_alt), col  = "red")
+abline(v = quantile(korver_null, .9), col = "green")
+abline(v = calculate_flatness(Korver_shots), col = "orange")
+
+```
+
+
+```{r}
+duncan_rejection <- quantile(duncan_null, .9)
+mclemore_rejection <- quantile(mclemore_null, .9)
+korver_rejection <- quantile(korver_null, .9)
+
+
+duncan_rejection
+mclemore_rejection 
+korver_rejection
+
+
+mean(duncan_null<=duncan_rejection)
+mean(duncan_alt>duncan_rejection)
+
+
+
+mean(mclemore_null<=mclemore_rejection)
+mean(mclemore_alt>mclemore_rejection)
+
+
+
+mean(korver_null<=korver_rejection)
+mean(korver_alt>korver_rejection)
+
+```
+
+```{r}
+min(mean(duncan_null<=calculate_flatness(Duncan_shots)), mean(duncan_null>=calculate_flatness(Duncan_shots)) )
+
+
+min(mean(mclemore_null<=calculate_flatness(McLemore_shots)), mean(mclemore_null>=calculate_flatness(McLemore_shots)) )
+
+
+min(mean(korver_null<=calculate_flatness(Korver_shots)), mean(korver_null>=calculate_flatness(Korver_shots)) )
+
+
+
+calculate_flatness(Duncan_shots)
+calculate_flatness(McLemore_shots)
+calculate_flatness(Korver_shots)
+
+
+```
+
+
+
+
+
